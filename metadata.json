@@ -1,0 +1,6 @@
+{
+  "name": "DinarFlow",
+  "description": "DinarFlow PSP application for Algeria",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
