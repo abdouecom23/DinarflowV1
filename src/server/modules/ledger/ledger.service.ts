@@ -1,17 +1,62 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LedgerEntry } from '../../entities/ledger-entry.entity';
 import { Account } from '../../entities/account.entity';
 
 @Injectable()
-export class LedgerService {
+export class LedgerService implements OnModuleInit {
   constructor(
     @InjectRepository(LedgerEntry)
     private ledgerRepo: Repository<LedgerEntry>,
     @InjectRepository(Account)
     private accountRepo: Repository<Account>,
   ) {}
+
+  onModuleInit() {
+    // Start background periodic reconciliation job.
+    // 24 hours = 24 * 60 * 60 * 1000 ms.
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+    // Run an initial reconciliation 5 seconds after startup to auto-heal any offline database crash discrepancies
+    setTimeout(async () => {
+      try {
+        console.log('[Ledger Reconciliation Job] Triggering startup database-integrity reconciliation...');
+        await this.reconcileAllAccounts();
+      } catch (err) {
+        console.error('[Ledger Reconciliation Job] Startup database-integrity reconciliation failed:', err);
+      }
+    }, 5000);
+
+    // Run the job periodically every 24 hours
+    setInterval(async () => {
+      try {
+        console.log('[Ledger Reconciliation Job] Triggering scheduled periodic 24-hour ledger reconciliation...');
+        await this.reconcileAllAccounts();
+      } catch (err) {
+        console.error('[Ledger Reconciliation Job] Scheduled periodic 24-hour ledger reconciliation failed:', err);
+      }
+    }, TWENTY_FOUR_HOURS);
+  }
+
+  async reconcileAllAccounts(): Promise<{ totalAccounts: number; reconciledCount: number; status: string }> {
+    const accounts = await this.accountRepo.find();
+    let reconciledCount = 0;
+
+    for (const account of accounts) {
+      const res = await this.reconcileLedger(account.id);
+      if (res.reconciled) {
+        reconciledCount++;
+      }
+    }
+
+    console.log(`[Ledger Reconciliation Job] Completed successfully. Total accounts analyzed: ${accounts.length}. Accounts healed/reconciled: ${reconciledCount}.`);
+    return {
+      totalAccounts: accounts.length,
+      reconciledCount,
+      status: 'SUCCESS',
+    };
+  }
 
   async findByAccountId(accountId: string) {
     return this.ledgerRepo.find({
@@ -23,7 +68,7 @@ export class LedgerService {
 
   async getRecentActivity() {
     return this.ledgerRepo.find({
-      relations: ['account'],
+      relations: { account: true },
       order: { ts: 'DESC' },
       take: 10,
     });

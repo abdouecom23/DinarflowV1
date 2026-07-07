@@ -1,5 +1,5 @@
 import { Controller, Get, Res, ServiceUnavailableException, Inject } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { DataSource } from 'typeorm';
 import { MetricsService } from './metrics.service';
 

@@ -28,4 +28,8 @@ export class UsersService {
     const user = this.userRepo.create(userData);
     return this.userRepo.save(user);
   }
+
+  async save(user: User): Promise<User> {
+    return this.userRepo.save(user);
+  }
 }

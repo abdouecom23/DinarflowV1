@@ -11,23 +11,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('TransfersService', () => {
   let service: TransfersService;
-  let accountRepo: MockRepository;
-  let txnRepo: MockRepository;
-  let ledgerRepo: MockRepository;
-  let dataSource: MockDataSource;
-
-  type MockRepository = {
-    findOne: any;
-    findOneBy: any;
-    find: any;
-    save: any;
-    create: any;
-    insert: any;
-  };
-
-  type MockDataSource = {
-    transaction: any;
-  };
+  let accountRepo: any;
+  let txnRepo: any;
+  let ledgerRepo: any;
+  let dataSource: any;
 
   beforeEach(async () => {
     const localMockAccount = (id: string, balance: string, tier: number = 1) => ({
@@ -146,7 +133,7 @@ describe('TransfersService', () => {
       idempotencyKey: 'key1',
     });
 
-    expect(result.status).toBe('COMPLETED');
+    expect((result as any).status).toBe('COMPLETED');
     expect(sender.balance).toBe('8000');
     expect(receiver.balance).toBe('7000');
     expect(ledgerRepo.save).toHaveBeenCalled();
@@ -164,7 +151,7 @@ describe('TransfersService', () => {
       idempotencyKey: 'key_idem',
     });
 
-    expect(result.id).toBe('txn-123');
+    expect((result as any).id).toBe('txn-123');
     expect(accountRepo.find).not.toHaveBeenCalled();
   });
 

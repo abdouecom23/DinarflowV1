@@ -2,7 +2,7 @@ import { Controller, Post, Body, UnauthorizedException, Inject, Res } from '@nes
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { IsEmail, IsNotEmpty, MinLength, IsOptional } from 'class-validator';
-import { Response } from 'express';
+import type { Response } from 'express';
 
 export class SignupDto {
   @IsEmail()

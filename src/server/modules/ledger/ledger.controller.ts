@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards, Req, ForbiddenException, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Param, UseGuards, Req, ForbiddenException, Inject } from '@nestjs/common';
 import { LedgerService } from './ledger.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UserRole } from '../../../types';
@@ -7,6 +7,22 @@ import { UserRole } from '../../../types';
 @UseGuards(JwtAuthGuard)
 export class LedgerController {
   constructor(@Inject(LedgerService) private readonly ledgerService: LedgerService) {}
+
+  @Get('history')
+  async getHistory(@Req() req: any) {
+    if (!req.user.accountId) {
+      throw new ForbiddenException('No bank account is linked to this user');
+    }
+    return this.ledgerService.findByAccountId(req.user.accountId);
+  }
+
+  @Post('reconcile-all')
+  async reconcileAll(@Req() req: any) {
+    if (req.user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can run global reconciliation audits');
+    }
+    return this.ledgerService.reconcileAllAccounts();
+  }
 
   @Get('account/:id')
   async getByAccount(@Param('id') id: string, @Req() req: any) {

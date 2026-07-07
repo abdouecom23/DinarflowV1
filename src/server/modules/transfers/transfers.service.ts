@@ -148,11 +148,11 @@ export class TransfersService {
       // Enforce the Ledger as the sole source of truth by correcting balance column if a discrepancy is found
       if (calculatedSenderBal !== BigInt(sender.balance)) {
         console.warn(`[Ledger Integrity] Sender balance discrepancy: DB is ${sender.balance}, calculated is ${calculatedSenderBal}. Aligning with ledger...`);
-        sender.balance = calculatedSenderBal.toString();
+        sender.balance = Number(calculatedSenderBal);
       }
       if (calculatedReceiverBal !== BigInt(receiver.balance)) {
         console.warn(`[Ledger Integrity] Receiver balance discrepancy: DB is ${receiver.balance}, calculated is ${calculatedReceiverBal}. Aligning with ledger...`);
-        receiver.balance = calculatedReceiverBal.toString();
+        receiver.balance = Number(calculatedReceiverBal);
       }
 
       const amountBig = BigInt(payload.amountCentimes);
@@ -190,10 +190,10 @@ export class TransfersService {
       const newSenderBal = senderBalanceBig - amountBig;
       const newReceiverBal = receiverBalanceBig + amountBig;
       
-      sender.balance = newSenderBal.toString();
-      sender.daily_debit_sum = (currentDailySum + amountBig).toString();
+      sender.balance = Number(newSenderBal);
+      sender.daily_debit_sum = Number(currentDailySum + amountBig);
       
-      receiver.balance = newReceiverBal.toString();
+      receiver.balance = Number(newReceiverBal);
 
       await accountRepo.save([sender, receiver]);
 
@@ -211,7 +211,7 @@ export class TransfersService {
         type: payload.type,
         senderAccount: sender,
         receiverAccount: receiver,
-        amount: payload.amountCentimes.toString(),
+        amount: payload.amountCentimes,
         reference: payload.reference,
         status: 'COMPLETED',
         idempotencyKey: payload.idempotencyKey,

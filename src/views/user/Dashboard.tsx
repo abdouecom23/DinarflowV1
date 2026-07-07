@@ -12,7 +12,8 @@ import {
   TrendingUp,
   CreditCard,
   ShieldCheck,
-  Lock
+  Lock,
+  Sparkles
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -33,14 +34,58 @@ interface AccountData {
   };
 }
 
+interface LedgerEntryData {
+  id: string;
+  transactionId: string;
+  direction: 'CREDIT' | 'DEBIT';
+  amount: number;
+  balanceAfter: number;
+  ts: string;
+}
+
+interface MarketAsset {
+  name: string;
+  symbol: string;
+  price: number; // Price in DA
+  change: string;
+}
+
+interface InvestmentHolding {
+  id: string;
+  symbol: string;
+  name: string;
+  shares: number;
+  averagePrice: number;
+  totalCost: number;
+}
+
 const UserDashboard: React.FC = () => {
   const queryClient = useQueryClient();
 
   // Unified Server State Query with TanStack Query
-  const { data, isLoading: loading, refetch: fetchAccount } = useQuery<AccountData>({
+  const { data, isLoading: loading } = useQuery<AccountData>({
     queryKey: ['account_me'],
     queryFn: () => apiRequest('/api/v1/accounts/me'),
     refetchInterval: 5000, // Background real-time transaction and balance synchronization every 5 seconds
+  });
+
+  // Query real ledger history
+  const { data: historyData, isLoading: loadingHistory } = useQuery<LedgerEntryData[]>({
+    queryKey: ['ledger_history'],
+    queryFn: () => apiRequest('/api/v1/ledger/history'),
+    refetchInterval: 5000,
+  });
+
+  // Query investment market assets
+  const { data: marketData } = useQuery<MarketAsset[]>({
+    queryKey: ['investment_market'],
+    queryFn: () => apiRequest('/api/v1/investments/market'),
+  });
+
+  // Query current investment holdings
+  const { data: holdingsData } = useQuery<InvestmentHolding[]>({
+    queryKey: ['investment_holdings'],
+    queryFn: () => apiRequest('/api/v1/investments/holdings'),
   });
 
   const [cards, setCards] = useState<Array<{ id: string; brand: string; last4: string }>>([
@@ -50,12 +95,18 @@ const UserDashboard: React.FC = () => {
 
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [selectedBuyAsset, setSelectedBuyAsset] = useState<MarketAsset | null>(null);
+  
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cards' | 'invest' | 'activity' | 'settings' | 'documents'>('dashboard');
   const [transferAmount, setTransferAmount] = useState('');
   const [addAmount, setAddAmount] = useState('');
+  const [buyShares, setBuyShares] = useState('');
   const [recipient, setRecipient] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+  const [buyMessage, setBuyMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
   const handleSendMoney = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,8 +131,9 @@ const UserDashboard: React.FC = () => {
 
       setMessage({ text: `Successfully sent ${transferAmount} DA!`, type: 'success' });
       
-      // Invalidate queries to refresh balance instantaneously via cache
+      // Invalidate queries to refresh balance and history instantaneously
       queryClient.invalidateQueries({ queryKey: ['account_me'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger_history'] });
 
       setTimeout(() => {
         setIsSendModalOpen(false);
@@ -96,27 +148,123 @@ const UserDashboard: React.FC = () => {
     }
   };
 
-  const handleAddFunds = (e: React.FormEvent) => {
+  const handleAddFunds = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addAmount) return;
     
     setIsProcessing(true);
-    setTimeout(() => {
-      if (data) {
-        // Optimistically update React Query's cache immediately
-        queryClient.setQueryData<AccountData>(['account_me'], {
-          ...data,
-          balance: data.balance + Number(addAmount),
-        });
-        setMessage({ text: `Successfully added ${addAmount} DA to your account!`, type: 'success' });
-        setTimeout(() => {
-          setIsAddFundsModalOpen(false);
-          setAddAmount('');
-          setMessage(null);
-        }, 2000);
-      }
+    setMessage(null);
+    try {
+      await apiRequest('/api/v1/accounts/deposit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: Number(addAmount),
+        }),
+      });
+
+      setMessage({ text: `Successfully added ${Number(addAmount).toLocaleString()} DA to your account!`, type: 'success' });
+      
+      queryClient.invalidateQueries({ queryKey: ['account_me'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger_history'] });
+
+      setTimeout(() => {
+        setIsAddFundsModalOpen(false);
+        setAddAmount('');
+        setMessage(null);
+      }, 2000);
+    } catch (err: any) {
+      setMessage({ text: err.message || 'Deposit failed.', type: 'error' });
+    } finally {
       setIsProcessing(false);
-    }, 1000);
+    }
+  };
+
+  const handleBuyAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBuyAsset || !buyShares) return;
+
+    setIsProcessing(true);
+    setBuyMessage(null);
+
+    try {
+      await apiRequest('/api/v1/investments/buy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: selectedBuyAsset.symbol,
+          shares: Number(buyShares),
+        }),
+      });
+
+      setBuyMessage({ text: `Successfully purchased ${buyShares} shares of ${selectedBuyAsset.name}!`, type: 'success' });
+      
+      queryClient.invalidateQueries({ queryKey: ['account_me'] });
+      queryClient.invalidateQueries({ queryKey: ['investment_holdings'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger_history'] });
+
+      setTimeout(() => {
+        setSelectedBuyAsset(null);
+        setBuyShares('');
+        setBuyMessage(null);
+      }, 2000);
+    } catch (err: any) {
+      setBuyMessage({ text: err.message || 'Asset purchase failed.', type: 'error' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUpgradeToPro = async () => {
+    setIsProcessing(true);
+    setMessage(null);
+
+    try {
+      await apiRequest('/api/v1/accounts/upgrade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      setMessage({ text: 'Congratulations! Your account has been upgraded to Pro membership (Level 3)!', type: 'success' });
+      
+      queryClient.invalidateQueries({ queryKey: ['account_me'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger_history'] });
+
+      setTimeout(() => {
+        setIsUpgradeModalOpen(false);
+        setMessage(null);
+      }, 2000);
+    } catch (err: any) {
+      setMessage({ text: err.message || 'Upgrade failed.', type: 'error' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const getEntryMeta = (entry: LedgerEntryData) => {
+    const isCredit = entry.direction === 'CREDIT';
+    return {
+      title: isCredit ? 'Funds Credited' : 'Funds Debited',
+      subtitle: isCredit ? 'Deposit / Received P2P' : 'Transfer / Investment / Fee',
+      icon: isCredit ? ArrowUpRight : ArrowDownLeft,
+      colorClass: isCredit ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-600',
+      sign: isCredit ? '+' : '-',
+    };
+  };
+
+  const formatDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Recent';
+    }
   };
 
   if (loading) {
@@ -200,25 +348,62 @@ const UserDashboard: React.FC = () => {
       case 'invest':
         return (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
-            <h2 className="text-2xl font-bold">Investments</h2>
+            <div>
+              <h2 className="text-2xl font-bold">Investments Market</h2>
+              <p className="text-xs text-gray-500">Buy primary stocks and crypto assets with your DinarFlow balance.</p>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
-              {[
-                { name: 'Bitcoin', symbol: 'BTC', price: '$64,231', change: '+2.4%' },
-                { name: 'Ethereum', symbol: 'ETH', price: '$3,412', change: '-1.2%' },
-                { name: 'Nvidia Corp', symbol: 'NVDA', price: '$821.50', change: '+5.7%' },
-                { name: 'Apple Inc', symbol: 'AAPL', price: '$172.10', change: '+0.3%' },
-              ].map((stock) => (
-                <div key={stock.symbol} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="font-bold">{stock.symbol}</span>
-                    <span className={`text-xs font-bold ${stock.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
-                      {stock.change}
-                    </span>
+              {(marketData || []).map((stock) => (
+                <div key={stock.symbol} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-bold text-gray-900 text-lg">{stock.symbol}</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stock.change.startsWith('+') ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>
+                        {stock.change}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500">{stock.name}</p>
+                    <p className="font-mono font-bold mt-2 text-gray-900 text-base">{(stock.price).toLocaleString()} DA <span className="text-[10px] text-gray-400 font-normal">/ Share</span></p>
                   </div>
-                  <p className="text-sm text-gray-500">{stock.name}</p>
-                  <p className="font-mono font-bold mt-1">{stock.price}</p>
+                  
+                  <button 
+                    onClick={() => setSelectedBuyAsset(stock)}
+                    className="mt-4 w-full h-10 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-bold transition-colors"
+                  >
+                    Buy Asset
+                  </button>
                 </div>
               ))}
+            </div>
+
+            {/* My Holdings */}
+            <div className="bg-white rounded-3xl border border-gray-100 p-6">
+              <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-indigo-500" />
+                My Portfolio Holdings
+              </h3>
+              
+              {!holdingsData || holdingsData.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">
+                  No active holdings. Buy assets to build your investment portfolio.
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {holdingsData.map((holding) => (
+                    <div key={holding.id} className="py-4 flex items-center justify-between first:pt-0 last:pb-0">
+                      <div>
+                        <p className="font-bold text-gray-900">{holding.name} ({holding.symbol})</p>
+                        <p className="text-xs text-gray-500">{holding.shares.toFixed(4)} Shares @ {Math.round(holding.averagePrice).toLocaleString()} DA avg</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-gray-900">{Math.round(holding.totalCost).toLocaleString()} DA</p>
+                        <p className="text-[10px] text-gray-400">Total Invested</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </motion.div>
         );
@@ -226,30 +411,41 @@ const UserDashboard: React.FC = () => {
         return (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
             <h2 className="text-2xl font-bold">All Activity</h2>
-            <div className="space-y-3">
-              {[
-                { name: 'Apple Store', type: 'Purchase', amount: -1299, date: 'Today', icon: ArrowDownLeft },
-                { name: 'Salary Deposit', type: 'Income', amount: 320000, date: 'Yesterday', icon: ArrowUpRight },
-                { name: 'Starbucks', type: 'Coffee', amount: -545, date: '2 days ago', icon: ArrowDownLeft },
-                { name: 'Netflix', type: 'Subscription', amount: -1999, date: '3 days ago', icon: ArrowDownLeft },
-                { name: 'Amazon', type: 'Shopping', amount: -4250, date: '4 days ago', icon: ArrowDownLeft },
-              ].map((tx, i) => (
-                <div key={i} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-50 hover:border-gray-200 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 ${tx.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-600'} rounded-full flex items-center justify-center`}>
-                      <tx.icon className="w-5 h-5" />
+            
+            {loadingHistory ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin h-6 w-6 border-2 border-gray-900 border-t-transparent rounded-full" />
+              </div>
+            ) : !historyData || historyData.length === 0 ? (
+              <div className="text-center bg-white border border-gray-100 rounded-3xl py-12 text-gray-400 text-sm">
+                No transactions detected in ledger_entries.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {historyData.map((entry) => {
+                  const meta = getEntryMeta(entry);
+                  return (
+                    <div key={entry.id} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 hover:border-gray-200 transition-colors shadow-sm">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 ${meta.colorClass} rounded-full flex items-center justify-center`}>
+                          <meta.icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-gray-900">{meta.title}</p>
+                          <p className="text-xs text-gray-500">{meta.subtitle} • {formatDate(entry.ts)}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`font-bold ${entry.direction === 'CREDIT' ? 'text-green-600' : 'text-gray-900'}`}>
+                          {meta.sign}{Number(entry.amount).toLocaleString()} DA
+                        </p>
+                        <p className="text-[10px] text-gray-400">Bal: {Number(entry.balanceAfter).toLocaleString()} DA</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-semibold text-gray-900">{tx.name}</p>
-                      <p className="text-xs text-gray-500">{tx.type} • {tx.date}</p>
-                    </div>
-                  </div>
-                  <p className={`font-bold ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                    {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString('en-US')} DA
-                  </p>
-                </div>
-              ))}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </motion.div>
         );
       case 'settings':
@@ -292,8 +488,8 @@ const UserDashboard: React.FC = () => {
               <div className="flex items-start gap-4">
                 {[
                   { label: 'Level 1', status: 'verified', desc: 'Phone & Email' },
-                  { label: 'Level 2', status: 'pending', desc: 'National ID' },
-                  { label: 'Level 3', status: 'locked', desc: 'Video Interview' },
+                  { label: 'Level 2', status: data?.user?.kyc_status === 'VERIFIED' ? 'verified' : 'pending', desc: 'National ID' },
+                  { label: 'Level 3', status: data?.tier && data.tier >= 3 ? 'verified' : 'locked', desc: 'Video Interview' },
                 ].map((step, i) => (
                   <div key={step.label} className="flex-1 flex flex-col items-center relative">
                     {i < 2 && <div className={`absolute top-5 left-1/2 w-full h-[2px] ${step.status === 'verified' ? 'bg-green-500' : 'bg-gray-100'}`} />}
@@ -312,19 +508,18 @@ const UserDashboard: React.FC = () => {
             </div>
 
             {/* Upload Area */}
-            <KYCForm />
+            <KYCForm onSuccess={() => queryClient.invalidateQueries({ queryKey: ['account_me'] })} />
 
             {/* Document History */}
             <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
               <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
                 <h3 className="font-bold">Submission History</h3>
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">3 Files Total</span>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Documents Verified</span>
               </div>
               <div className="divide-y divide-gray-50">
                 {[
-                  { name: 'national_id_front.jpg', type: 'Proof of ID', date: '2 hours ago', status: 'In Review', color: 'text-orange-500 bg-orange-50' },
-                  { name: 'utility_bill_june.pdf', type: 'Proof of Residence', date: 'June 12, 2026', status: 'Approved', color: 'text-green-500 bg-green-50' },
-                  { name: 'registration_form.pdf', type: 'PSP Agreement', date: 'May 01, 2026', status: 'Approved', color: 'text-green-500 bg-green-50' },
+                  { name: 'national_id_front.jpg', type: 'Proof of ID', status: data?.user?.kyc_status === 'VERIFIED' ? 'Approved' : 'In Review', color: data?.user?.kyc_status === 'VERIFIED' ? 'text-green-500 bg-green-50' : 'text-orange-500 bg-orange-50' },
+                  { name: 'registration_form.pdf', type: 'PSP Agreement', status: 'Approved', color: 'text-green-500 bg-green-50' },
                 ].map((doc, i) => (
                   <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-4">
@@ -333,7 +528,7 @@ const UserDashboard: React.FC = () => {
                       </div>
                       <div>
                         <p className="font-bold text-sm text-gray-900">{doc.name}</p>
-                        <p className="text-xs text-gray-500">{doc.type} • {doc.date}</p>
+                        <p className="text-xs text-gray-500">{doc.type}</p>
                       </div>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${doc.color}`}>
@@ -439,7 +634,7 @@ const UserDashboard: React.FC = () => {
             {/* Recent Activity */}
             <div className="bg-white rounded-3xl border border-gray-100 p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold">Recent Activity</h3>
+                <h3 className="text-lg font-bold">Recent Ledger Activity</h3>
                 <button 
                   onClick={() => setActiveTab('activity')}
                   className="text-sm font-semibold text-gray-500 hover:text-gray-900 underline decoration-gray-200"
@@ -448,28 +643,39 @@ const UserDashboard: React.FC = () => {
                 </button>
               </div>
               
-              <div className="space-y-4">
-                {[
-                  { name: 'Apple Store', type: 'Purchase', amount: -12.99, date: 'Today', icon: ArrowDownLeft },
-                  { name: 'Salary Deposit', type: 'Income', amount: 3200.00, date: 'Yesterday', icon: ArrowUpRight },
-                  { name: 'Starbucks', type: 'Coffee', amount: -5.45, date: '2 days ago', icon: ArrowDownLeft },
-                ].map((tx, i) => (
-                  <div key={i} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 ${tx.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-600'} rounded-full flex items-center justify-center`}>
-                        <tx.icon className="w-5 h-5" />
+              {loadingHistory ? (
+                <div className="flex justify-center py-6">
+                  <div className="animate-spin h-5 w-5 border-2 border-gray-900 border-t-transparent rounded-full" />
+                </div>
+              ) : !historyData || historyData.length === 0 ? (
+                <div className="text-center py-6 text-gray-400 text-sm">
+                  No transaction ledger entries.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {historyData.slice(0, 4).map((entry) => {
+                    const meta = getEntryMeta(entry);
+                    return (
+                      <div key={entry.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 ${meta.colorClass} rounded-full flex items-center justify-center`}>
+                            <meta.icon className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{meta.title}</p>
+                            <p className="text-xs text-gray-500">{meta.subtitle} • {formatDate(entry.ts)}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${entry.direction === 'CREDIT' ? 'text-green-600' : 'text-gray-900'}`}>
+                            {meta.sign}{Number(entry.amount).toLocaleString()} DA
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">{tx.name}</p>
-                        <p className="text-xs text-gray-500">{tx.type} • {tx.date}</p>
-                      </div>
-                    </div>
-                    <p className={`font-bold ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                      {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString('en-US')} DA
-                    </p>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -526,23 +732,28 @@ const UserDashboard: React.FC = () => {
               </div>
               <button 
                 onClick={() => setActiveTab('documents')}
-                className="w-full py-3 rounded-xl border border-gray-200 text-sm font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                disabled={data?.tier && data.tier >= 3}
+                className="w-full py-3 rounded-xl border border-gray-200 text-sm font-bold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Upgrade to Level {Number(data?.tier) + 1}
+                {data?.tier && data.tier >= 3 ? 'Fully Upgraded' : `Upgrade to Level ${Number(data?.tier) + 1}`}
               </button>
             </div>
 
             <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden group">
               <div className="relative z-10">
-                <h3 className="font-bold mb-2">Upgrade to Pro</h3>
+                <h3 className="font-bold mb-2 flex items-center gap-1.5">
+                  <Sparkles className="w-5 h-5" />
+                  Upgrade to Pro
+                </h3>
                 <p className="text-sm text-indigo-100 mb-6 leading-relaxed">
-                  Unlock advanced analytics and higher transaction limits with DinarFlow Pro.
+                  Unlock advanced investment options, unlimited limits, and Level 3 privileges with DinarFlow Pro.
                 </p>
                 <button 
-                  onClick={() => alert('DinarFlow Pro upgrade is not available in demo.')}
-                  className="w-full bg-white text-indigo-600 h-11 rounded-xl font-bold transition-all hover:scale-[1.02] active:scale-95 text-sm"
+                  onClick={() => setIsUpgradeModalOpen(true)}
+                  disabled={data?.tier && data.tier >= 3}
+                  className="w-full bg-white text-indigo-600 h-11 rounded-xl font-bold transition-all hover:scale-[1.02] active:scale-95 text-sm disabled:opacity-50 disabled:pointer-events-none"
                 >
-                  Learn More
+                  {data?.tier && data.tier >= 3 ? 'You Are Pro' : 'Upgrade for 1,500 DA'}
                 </button>
               </div>
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-white/20 transition-colors" />
@@ -574,7 +785,7 @@ const UserDashboard: React.FC = () => {
               
               <form onSubmit={handleSendMoney} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Email or Username</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Recipient IBAN, Email, or Username</label>
                   <input
                     type="text"
                     required
@@ -668,14 +879,14 @@ const UserDashboard: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
-                  {[500, 1000, 5000].map(amt => (
+                  {[5000, 20000, 100000].map(amt => (
                     <button
                       key={amt}
                       type="button"
                       onClick={() => setAddAmount(amt.toString())}
-                      className="h-10 rounded-lg bg-gray-50 text-gray-900 font-bold border border-gray-100 hover:bg-gray-100 transition-colors"
+                      className="h-10 rounded-lg bg-gray-50 text-gray-900 font-bold border border-gray-100 hover:bg-gray-100 transition-colors text-xs"
                     >
-                      +{amt}
+                      +{amt.toLocaleString()}
                     </button>
                   ))}
                 </div>
@@ -705,6 +916,177 @@ const UserDashboard: React.FC = () => {
                     className="flex-1 h-12 rounded-xl font-semibold text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center justify-center"
                   >
                     {isProcessing ? 'Adding...' : 'Add Now'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Upgrade to Pro Modal */}
+      <AnimatePresence>
+        {isUpgradeModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isProcessing) setIsUpgradeModalOpen(false);
+              }}
+              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-bold mb-3">Upgrade to DinarFlow Pro</h3>
+              <p className="text-sm text-gray-500 mb-6">
+                Elevate your account to the professional standard of banking with exclusive Level 3 benefits.
+              </p>
+
+              <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 mb-6 space-y-2.5">
+                <p className="text-xs font-bold text-indigo-800 uppercase tracking-wide">Included with Pro Membership:</p>
+                <ul className="text-xs text-indigo-950 space-y-1.5 list-disc pl-4 font-medium">
+                  <li>Unlock Level 3 daily limits (up to 500,000 DA)</li>
+                  <li>Unlock primary stock/crypto investments panel</li>
+                  <li>Dedicated video interview routing for verification compliance</li>
+                  <li>Waived fees on high-frequency P2P transfers</li>
+                </ul>
+              </div>
+
+              <div className="flex justify-between items-center bg-gray-50 p-4 rounded-xl mb-6">
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">One-Time Upgrade Fee</p>
+                  <p className="text-xl font-bold text-gray-900">1,500 DA</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Current Balance</p>
+                  <p className="text-sm font-bold text-indigo-600">{(data?.balance || 0).toLocaleString()} DA</p>
+                </div>
+              </div>
+
+              {message && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className={`text-sm font-medium mb-4 ${message.type === 'success' ? 'text-green-600' : 'text-red-600'}`}
+                >
+                  {message.text}
+                </motion.p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsUpgradeModalOpen(false)}
+                  disabled={isProcessing}
+                  className="flex-1 h-12 rounded-xl font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUpgradeToPro}
+                  disabled={isProcessing || !data || data.balance < 1500}
+                  className="flex-1 h-12 rounded-xl font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  {isProcessing ? 'Processing...' : 'Confirm Upgrade'}
+                </button>
+              </div>
+              
+              {data && data.balance < 1500 && (
+                <p className="text-center text-xs text-red-500 font-semibold mt-3">
+                  Insufficient funds. Please add more funds to upgrade.
+                </p>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Buy Asset Modal */}
+      <AnimatePresence>
+        {selectedBuyAsset && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isProcessing) setSelectedBuyAsset(null);
+              }}
+              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+            >
+              <h3 className="text-2xl font-bold mb-1">Buy {selectedBuyAsset.name}</h3>
+              <p className="text-xs text-gray-400 mb-6 font-mono">Asset Symbol: {selectedBuyAsset.symbol}</p>
+              
+              <form onSubmit={handleBuyAsset} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Number of Shares to Purchase</label>
+                  <input
+                    type="number"
+                    required
+                    min="0.0001"
+                    step="any"
+                    value={buyShares}
+                    onChange={(e) => setBuyShares(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full h-12 px-4 rounded-xl border border-gray-200 focus:border-gray-900 focus:ring-2 focus:ring-gray-900/10 focus:outline-none transition-all"
+                  />
+                </div>
+
+                <div className="bg-gray-50 p-4 rounded-xl space-y-2 text-sm">
+                  <div className="flex justify-between text-gray-500">
+                    <span>Price per Share</span>
+                    <span className="font-mono text-gray-900 font-bold">{(selectedBuyAsset.price).toLocaleString()} DA</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 border-t border-gray-100 pt-2">
+                    <span>Total Cost</span>
+                    <span className="font-mono text-gray-900 font-bold">
+                      {buyShares ? Math.round(selectedBuyAsset.price * Number(buyShares)).toLocaleString() : '0'} DA
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 border-t border-gray-100 pt-2 text-xs">
+                    <span>Available Balance</span>
+                    <span className="font-mono text-indigo-600 font-bold">{(data?.balance || 0).toLocaleString()} DA</span>
+                  </div>
+                </div>
+
+                {buyMessage && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className={`text-sm font-medium ${buyMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}
+                  >
+                    {buyMessage.text}
+                  </motion.p>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBuyAsset(null)}
+                    disabled={isProcessing}
+                    className="flex-1 h-12 rounded-xl font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isProcessing || !buyShares || (data && data.balance < Math.round(selectedBuyAsset.price * Number(buyShares)))}
+                    className="flex-1 h-12 rounded-xl font-semibold text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center justify-center"
+                  >
+                    {isProcessing ? 'Processing...' : 'Confirm Buy'}
                   </button>
                 </div>
               </form>

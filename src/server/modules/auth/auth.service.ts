@@ -28,7 +28,7 @@ export class AuthService {
     }
   }
 
-  async register(signupData: { email: string; pass: string; fullName: string; role: string }) {
+  async register(signupData: { email: string; pass: string; fullName: string; role?: string }) {
     const existingUser = await this.usersService.findByEmail(signupData.email);
     if (existingUser) {
       throw new BadRequestException('User already exists with this email');
@@ -42,6 +42,13 @@ export class AuthService {
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     const payment_tag = `${baseTag}_${randomSuffix}`;
 
+    // Secure default: Only 'USER' or 'MERCHANT' roles are publicly registrable.
+    // Attempting to pass 'ADMIN', 'AGENT', or any other roles is strictly blocked and forced to 'USER'.
+    let assignedRole = 'USER';
+    if (signupData.role === 'MERCHANT') {
+      assignedRole = 'MERCHANT';
+    }
+
     const newUser = await this.usersService.create({
       email: signupData.email,
       password: hashedPassword,
@@ -49,7 +56,7 @@ export class AuthService {
       payment_tag,
       kyc_level: 1,
       kyc_status: 'PENDING',
-      role: signupData.role as any,
+      role: assignedRole as any,
     });
 
     await this.accountsService.create(newUser);

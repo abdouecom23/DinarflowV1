@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Account } from '../../entities/account.entity';
@@ -106,5 +106,85 @@ export class AccountsService {
       status: 'PENDING',
       message: 'KYC documents received. Asynchronous verification pipeline has been triggered.',
     };
+  }
+
+  async deposit(userId: string, amount: number): Promise<Account> {
+    const account = await this.findByUserId(userId);
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const accountRepo = manager.getRepository(Account);
+      const ledgerRepo = manager.getRepository(LedgerEntry);
+
+      const activeAccount = await accountRepo.findOne({ where: { id: account.id } });
+      if (!activeAccount) {
+        throw new NotFoundException('Account not found');
+      }
+
+      // Convert from string if somehow passed as string
+      const parsedAmount = Number(amount);
+      activeAccount.balance += parsedAmount;
+      const savedAccount = await accountRepo.save(activeAccount);
+
+      const ledgerEntry = ledgerRepo.create({
+        transactionId: crypto.randomUUID(),
+        account: savedAccount,
+        direction: 'CREDIT',
+        amount: parsedAmount,
+        balanceAfter: savedAccount.balance,
+        ts: new Date(),
+      });
+      await ledgerRepo.save(ledgerEntry);
+
+      return savedAccount;
+    });
+  }
+
+  async upgradeToPro(userId: string): Promise<{ success: boolean; message: string; account: Account }> {
+    const account = await this.findByUserId(userId);
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const accountRepo = manager.getRepository(Account);
+      const ledgerRepo = manager.getRepository(LedgerEntry);
+
+      const activeAccount = await accountRepo.findOne({ where: { id: account.id } });
+      if (!activeAccount) {
+        throw new NotFoundException('Account not found');
+      }
+
+      if (activeAccount.tier >= 3) {
+        throw new BadRequestException('Account is already upgraded to DinarFlow Pro (Level 3)');
+      }
+
+      const UPGRADE_FEE = 1500; // 1,500 DA one-time fee
+      if (activeAccount.balance < UPGRADE_FEE) {
+        throw new BadRequestException(`Insufficient balance for Pro Upgrade. Fee: ${UPGRADE_FEE} DA, Current Balance: ${activeAccount.balance} DA.`);
+      }
+
+      activeAccount.balance -= UPGRADE_FEE;
+      activeAccount.tier = 3; // Upgrade to Level 3 (PRO)
+      const savedAccount = await accountRepo.save(activeAccount);
+
+      const ledgerEntry = ledgerRepo.create({
+        transactionId: crypto.randomUUID(),
+        account: savedAccount,
+        direction: 'DEBIT',
+        amount: UPGRADE_FEE,
+        balanceAfter: savedAccount.balance,
+        ts: new Date(),
+      });
+      await ledgerRepo.save(ledgerEntry);
+
+      return {
+        success: true,
+        message: 'Congratulations! Your account has been upgraded to DinarFlow Pro.',
+        account: savedAccount,
+      };
+    });
   }
 }

@@ -65,13 +65,14 @@ const KYCForm: React.FC<KYCFormProps> = ({ onSuccess }) => {
     setError(null);
     
     try {
-      await apiRequest('/api/v1/accounts/kyc', {
+      await apiRequest('/api/v1/accounts/kyc/upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           docType,
+          fileName: file.name,
         }),
       });
       
