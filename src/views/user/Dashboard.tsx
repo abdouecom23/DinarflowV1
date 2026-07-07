@@ -159,6 +159,7 @@ const UserDashboard: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': uuidv4(),
         },
         body: JSON.stringify({
           amount: Number(addAmount),
@@ -194,6 +195,7 @@ const UserDashboard: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': uuidv4(),
         },
         body: JSON.stringify({
           symbol: selectedBuyAsset.symbol,
@@ -228,6 +230,7 @@ const UserDashboard: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': uuidv4(),
         },
       });
 

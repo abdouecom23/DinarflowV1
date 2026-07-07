@@ -7,6 +7,7 @@ import { TransfersModule } from './modules/transfers/transfers.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { InvestmentsModule } from './modules/investments/investments.module';
+import { MerchantModule } from './modules/merchant/merchant.module';
 import { MonitoringMiddleware } from './common/monitoring.middleware';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { CacheService } from './common/cache.service';
@@ -55,6 +56,7 @@ import { CacheService } from './common/cache.service';
     LedgerModule,
     MonitoringModule,
     InvestmentsModule,
+    MerchantModule,
   ],
   providers: [
     CacheService,
