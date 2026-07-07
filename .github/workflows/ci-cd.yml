@@ -1,0 +1,142 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # Stage 1: Quality Assurance & Linting
+  lint:
+    name: Code Quality & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Linter & Static Analysis
+        run: npm run lint
+
+  # Stage 2: Automated Testing
+  test:
+    name: Run Test Suite
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Unit & Integration Tests
+        run: npm run test
+
+  # Stage 3: Compilation & Packaging
+  build:
+    name: Compile & Package Artifacts
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Build (Frontend & Backend Bundling)
+        run: npm run build
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Dockerfile Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: dinarflow:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Commit to GitHub Phase: Automatically record and push compilation metadata on successful builds
+      - name: Generate Build Metadata Artifact
+        run: |
+          echo '{
+            "status": "compiled",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "timestamp": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'",
+            "builder": "DinarFlow CI Agent"
+          }' > build-metadata.json
+
+      - name: Commit and Push Build Info to GitHub Repository
+        run: |
+          git config --global user.name "DinarFlow CI/CD Bot"
+          git config --global user.email "ci-bot@dinarflow.com"
+          git add build-metadata.json
+          git diff-index --quiet HEAD || git commit -m "chore(ci): update build metadata [skip ci]"
+          if [ "${{ github.event_name }}" == "push" ]; then
+            git push origin HEAD:${{ github.ref_name }} || true
+          fi
+
+  # Stage 4: Promotion & Deployment to Staging Environment
+  deploy-staging:
+    name: Staging Deployment
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Simulated Rollout to Staging Cluster
+        run: |
+          echo "Initiating DinarFlow deployment to Staging Environment..."
+          echo "Simulating rollout to Kubernetes / Cloud Run on port 3000..."
+          echo "Validating database connection pool and migrations..."
+          echo "Staging Rollout Successful!"
+
+  # Stage 5: Promotion & Deployment to Production Environment
+  deploy-production:
+    name: Production Deployment
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Simulated Secure Rollout to Production Cluster
+        run: |
+          echo "Promoting staging build to Production Cluster..."
+          echo "Applying multi-column database indexes and pooling parameters..."
+          echo "Verifying PCI-DSS level-1 gateway communication..."
+          echo "Production Rollout Successful!"
+

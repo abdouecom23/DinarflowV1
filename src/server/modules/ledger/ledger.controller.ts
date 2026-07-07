@@ -23,4 +23,20 @@ export class LedgerController {
     }
     return this.ledgerService.getRecentActivity();
   }
+
+  @Get('audit/:id')
+  async auditAccount(@Param('id') id: string, @Req() req: any) {
+    if (req.user.role !== UserRole.ADMIN && req.user.accountId !== id) {
+      throw new ForbiddenException('You can only audit your own account ledger');
+    }
+    return this.ledgerService.auditLedger(id);
+  }
+
+  @Get('reconcile/:id')
+  async reconcileAccount(@Param('id') id: string, @Req() req: any) {
+    if (req.user.role !== UserRole.ADMIN && req.user.accountId !== id) {
+      throw new ForbiddenException('You can only reconcile your own account ledger');
+    }
+    return this.ledgerService.reconcileLedger(id);
+  }
 }

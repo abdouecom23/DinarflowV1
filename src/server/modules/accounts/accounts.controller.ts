@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards, NotFoundException, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Body, Req, UseGuards, NotFoundException, Inject } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -14,5 +14,10 @@ export class AccountsController {
       throw new NotFoundException('Account not found for this user');
     }
     return account;
+  }
+
+  @Post('kyc')
+  async submitKYC(@Req() req: any, @Body() body: { docType: string }) {
+    return this.accountsService.submitKYC(req.user.userId, body.docType);
   }
 }

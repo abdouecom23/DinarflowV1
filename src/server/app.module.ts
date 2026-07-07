@@ -1,9 +1,14 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuthModule } from './modules/auth/auth.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { MonitoringMiddleware } from './common/monitoring.middleware';
+import { IdempotencyInterceptor } from './common/idempotency.interceptor';
+import { CacheService } from './common/cache.service';
 
 @Module({
   imports: [
@@ -14,7 +19,7 @@ import { LedgerModule } from './modules/ledger/ledger.module';
                             process.env.DB_HOST !== '127.0.0.1' && 
                             process.env.DB_HOST !== 'localhost';
         if (usePostgres) {
-          console.log('[DinarFlow] Connecting to PostgreSQL database...');
+          console.log('[DinarFlow] Connecting to PostgreSQL database with optimal pooling settings...');
           return {
             type: 'postgres',
             host: process.env.DB_HOST,
@@ -24,6 +29,12 @@ import { LedgerModule } from './modules/ledger/ledger.module';
             database: process.env.DB_NAME,
             autoLoadEntities: true,
             synchronize: false, // Disable synchronize to avoid permission errors
+            extra: {
+              max: parseInt(process.env.DB_POOL_MAX || '20', 10), // Limit pool size for stability
+              min: parseInt(process.env.DB_POOL_MIN || '2', 10),
+              idleTimeoutMillis: 30000,
+              connectionTimeoutMillis: 5000,
+            },
           };
         } else {
           console.log('[DinarFlow] No PostgreSQL configuration found, falling back to local SQLite...');
@@ -41,6 +52,19 @@ import { LedgerModule } from './modules/ledger/ledger.module';
     AccountsModule,
     TransfersModule,
     LedgerModule,
+    MonitoringModule,
+  ],
+  providers: [
+    CacheService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: IdempotencyInterceptor,
+    },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(MonitoringMiddleware).forRoutes('*');
+  }
+}
+

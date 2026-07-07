@@ -96,8 +96,68 @@ export class TransfersService {
       if (sender.id === receiver.id) throw new BadRequestException('Cannot transfer to self');
       if (sender.status !== 'ACTIVE') throw new ForbiddenException('Sender account is not active');
 
+      // --- LEDGER INTEGRITY AND SOURCE OF TRUTH VERIFICATION ---
+      // Auto-heal legacy accounts that don't have starting ledger entries
+      const senderLedgerEntries = await ledgerRepo.find({ where: { account: { id: sender.id } } });
+      if (senderLedgerEntries.length === 0) {
+        const opening = ledgerRepo.create({
+          transactionId: crypto.randomUUID(),
+          account: sender,
+          direction: 'CREDIT',
+          amount: Number(sender.balance),
+          balanceAfter: Number(sender.balance),
+          ts: new Date(),
+        });
+        await ledgerRepo.save(opening);
+        senderLedgerEntries.push(opening);
+      }
+
+      const receiverLedgerEntries = await ledgerRepo.find({ where: { account: { id: receiver.id } } });
+      if (receiverLedgerEntries.length === 0) {
+        const opening = ledgerRepo.create({
+          transactionId: crypto.randomUUID(),
+          account: receiver,
+          direction: 'CREDIT',
+          amount: Number(receiver.balance),
+          balanceAfter: Number(receiver.balance),
+          ts: new Date(),
+        });
+        await ledgerRepo.save(opening);
+        receiverLedgerEntries.push(opening);
+      }
+
+      // Compute current balances solely from ledger entries
+      let calculatedSenderBal = 0n;
+      for (const entry of senderLedgerEntries) {
+        if (entry.direction === 'CREDIT') {
+          calculatedSenderBal += BigInt(entry.amount);
+        } else if (entry.direction === 'DEBIT') {
+          calculatedSenderBal -= BigInt(entry.amount);
+        }
+      }
+
+      let calculatedReceiverBal = 0n;
+      for (const entry of receiverLedgerEntries) {
+        if (entry.direction === 'CREDIT') {
+          calculatedReceiverBal += BigInt(entry.amount);
+        } else if (entry.direction === 'DEBIT') {
+          calculatedReceiverBal -= BigInt(entry.amount);
+        }
+      }
+
+      // Enforce the Ledger as the sole source of truth by correcting balance column if a discrepancy is found
+      if (calculatedSenderBal !== BigInt(sender.balance)) {
+        console.warn(`[Ledger Integrity] Sender balance discrepancy: DB is ${sender.balance}, calculated is ${calculatedSenderBal}. Aligning with ledger...`);
+        sender.balance = calculatedSenderBal.toString();
+      }
+      if (calculatedReceiverBal !== BigInt(receiver.balance)) {
+        console.warn(`[Ledger Integrity] Receiver balance discrepancy: DB is ${receiver.balance}, calculated is ${calculatedReceiverBal}. Aligning with ledger...`);
+        receiver.balance = calculatedReceiverBal.toString();
+      }
+
       const amountBig = BigInt(payload.amountCentimes);
       const senderBalanceBig = BigInt(sender.balance);
+      const receiverBalanceBig = BigInt(receiver.balance);
 
       if (senderBalanceBig < amountBig) throw new ForbiddenException('Insufficient balance');
 
@@ -119,7 +179,6 @@ export class TransfersService {
 
       const balanceCapDA = BigInt(TIER_LIMITS[receiver.tier]);
       const balanceCapCentimes = balanceCapDA * 100n;
-      const receiverBalanceBig = BigInt(receiver.balance);
       
       if (receiverBalanceBig + amountBig > balanceCapCentimes) {
         throw new ForbiddenException(`Receiver balance cap would be exceeded for Tier ${receiver.tier} (${balanceCapDA} DA)`);

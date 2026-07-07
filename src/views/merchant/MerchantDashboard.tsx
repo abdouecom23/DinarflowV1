@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart3, 
   Link as LinkIcon, 
@@ -14,11 +14,14 @@ import {
   CreditCard,
   Building2,
   FileText,
-  Bell
+  Bell,
+  Menu,
+  X
 } from 'lucide-react';
 
 const MerchantDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'links' | 'customers' | 'settlements' | 'settings'>('overview');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -233,9 +236,114 @@ const MerchantDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar Navigation */}
-      <aside className="w-72 bg-white border-r border-gray-100 flex flex-col p-8 sticky top-0 h-screen">
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+      {/* Mobile Top Header */}
+      <header className="lg:hidden bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
+            <BarChart3 className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-lg font-bold tracking-tight text-gray-950">Merchant</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl transition-colors relative">
+            <Bell className="w-5 h-5" />
+            <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full" />
+          </button>
+          <button 
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="p-2 hover:bg-gray-100 text-gray-700 rounded-xl transition-all"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile Navigation Side Drawer */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            {/* Backdrop with fade-in effect */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/50 backdrop-blur-xs cursor-pointer"
+            />
+
+            {/* Slide-out Sidebar Drawer */}
+            <motion.aside
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
+              className="relative w-80 max-w-[85vw] bg-white h-full flex flex-col p-8 shadow-2xl z-10 overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-10">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
+                    <BarChart3 className="w-6 h-6 text-white" />
+                  </div>
+                  <span className="text-xl font-bold tracking-tight text-gray-950">Merchant</span>
+                </div>
+                <button 
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all"
+                  aria-label="Close menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <nav className="flex-1 space-y-1.5">
+                {[
+                  { id: 'overview', icon: BarChart3, label: 'Overview' },
+                  { id: 'links', icon: LinkIcon, label: 'Payment Links' },
+                  { id: 'customers', icon: Users, label: 'Customers' },
+                  { id: 'settlements', icon: FileText, label: 'Settlements' },
+                  { id: 'settings', icon: Settings, label: 'Settings' },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+                      activeTab === item.id 
+                        ? 'bg-gray-900 text-white shadow-lg shadow-gray-200' 
+                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
+
+              <div className="mt-auto pt-6 border-t border-gray-100">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center font-bold text-gray-600">
+                    M
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">TechDZ Store</p>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Merchant ID: 49201</p>
+                  </div>
+                </div>
+                <button className="w-full py-3 bg-red-50 text-red-600 rounded-2xl text-sm font-bold hover:bg-red-100 transition-colors">
+                  Log out
+                </button>
+              </div>
+            </motion.aside>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Persistent Desktop Sidebar */}
+      <aside className="hidden lg:flex w-72 bg-white border-r border-gray-100 flex-col p-8 sticky top-0 h-screen">
         <div className="flex items-center gap-3 mb-12">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
             <BarChart3 className="w-6 h-6 text-white" />
@@ -283,8 +391,8 @@ const MerchantDashboard: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-12 max-w-7xl mx-auto">
-        <header className="flex items-center justify-between mb-12">
+      <main className="flex-1 p-6 md:p-12 max-w-7xl mx-auto w-full">
+        <header className="hidden lg:flex items-center justify-between mb-12">
           <div>
             <h1 className="text-3xl font-bold tracking-tight mb-1 capitalize">{activeTab}</h1>
             <p className="text-sm text-gray-500">Welcome back, here's your business performance.</p>
@@ -296,6 +404,12 @@ const MerchantDashboard: React.FC = () => {
             </button>
           </div>
         </header>
+
+        {/* Mobile-only page title/description */}
+        <div className="lg:hidden mb-8">
+          <h1 className="text-2xl font-bold tracking-tight mb-1 capitalize text-gray-900">{activeTab}</h1>
+          <p className="text-xs text-gray-500">Here's your business performance overview.</p>
+        </div>
 
         {renderContent()}
       </main>

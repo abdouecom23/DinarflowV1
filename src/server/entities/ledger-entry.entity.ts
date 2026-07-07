@@ -1,7 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Account } from './account.entity';
 
 @Entity('ledger_entries')
+@Index(['account', 'ts'])
 export class LedgerEntry {
   @PrimaryGeneratedColumn('uuid')
   id: string;

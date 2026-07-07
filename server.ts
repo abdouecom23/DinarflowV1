@@ -3,8 +3,8 @@ import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './src/server/app.module';
-import { IdempotencyInterceptor } from './src/server/common/idempotency.interceptor';
 import { AllExceptionsFilter } from './src/server/common/all-exceptions.filter';
+import { StructuredLogger } from './src/server/common/structured-logger';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from "vite";
@@ -28,26 +28,33 @@ if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  // app.setGlobalPrefix('api/v1');
+  const structuredLogger = new StructuredLogger();
+  const app = await NestFactory.create(AppModule, {
+    logger: structuredLogger,
+  });
+  
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     transform: true,
     forbidNonWhitelisted: true,
   }));
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new IdempotencyInterceptor());
   
   const expressApp = app.getHttpAdapter().getInstance();
   
+  // Helper to check if a request path belongs to a NestJS backend route
+  const isBackendRoute = (url: string) => {
+    return url.startsWith('/api/v1') || url.startsWith('/health') || url.startsWith('/metrics');
+  };
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
-    // Use Vite middleware for anything that isn't the API
+    // Use Vite middleware for anything that isn't a NestJS route
     expressApp.use((req, res, next) => {
-      if (req.url.startsWith('/api/v1')) {
+      if (isBackendRoute(req.url)) {
         return next();
       }
       vite.middlewares(req, res, next);
@@ -56,7 +63,7 @@ async function bootstrap() {
     const distPath = path.join(process.cwd(), 'dist');
     expressApp.use(express.static(distPath));
     expressApp.get('*', (req, res, next) => {
-      if (req.url.startsWith('/api/v1')) {
+      if (isBackendRoute(req.url)) {
         return next();
       }
       res.sendFile(path.join(distPath, 'index.html'));
@@ -66,3 +73,4 @@ async function bootstrap() {
   await app.listen(3000, '0.0.0.0');
 }
 bootstrap();
+

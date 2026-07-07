@@ -30,8 +30,24 @@ describe('TransfersService', () => {
   };
 
   beforeEach(async () => {
+    const localMockAccount = (id: string, balance: string, tier: number = 1) => ({
+      id,
+      balance,
+      tier,
+      status: 'ACTIVE',
+      daily_debit_sum: '0',
+      updated_at: new Date(),
+    });
+
     accountRepo = {
-      findOne: vi.fn(),
+      findOne: vi.fn(async (opts: any) => {
+        const where = opts?.where || {};
+        if (where.id === 'acc1' || where.user?.id === 'user-1') return localMockAccount('acc1', '10000');
+        if (where.id === 'acc2' || where.user?.id === 'user-2') return localMockAccount('acc2', '5000');
+        if (where.id === 'A' || where.user?.id === 'user-A') return localMockAccount('A', '10000');
+        if (where.id === 'B' || where.user?.id === 'user-B') return localMockAccount('B', '10000');
+        return null;
+      }),
       findOneBy: vi.fn(),
       find: vi.fn(),
       save: vi.fn(x => x),
@@ -50,9 +66,41 @@ describe('TransfersService', () => {
 
     ledgerRepo = {
       insert: vi.fn(),
+      find: vi.fn(async () => []),
+      create: vi.fn(x => x),
+      save: vi.fn(x => x),
+    };
+
+    const userRepo = {
+      findOne: vi.fn(async (opts: any) => {
+        const where = opts?.where || [];
+        const firstCond = Array.isArray(where) ? where[0] : where;
+        // Stringify to handle potential query objects
+        const queryStr = JSON.stringify(firstCond || {}).toLowerCase();
+        
+        if (queryStr.includes('acc1')) {
+          return { id: 'user-1' };
+        }
+        if (queryStr.includes('acc2')) {
+          return { id: 'user-2' };
+        }
+        if (queryStr.includes('a')) {
+          return { id: 'user-A' };
+        }
+        if (queryStr.includes('b')) {
+          return { id: 'user-B' };
+        }
+        return { id: 'user-2' };
+      }),
     };
 
     dataSource = {
+      getRepository: vi.fn((entity: any) => {
+        if (entity === User) return userRepo;
+        if (entity === Account) return accountRepo;
+        if (entity === Transaction) return txnRepo;
+        return null;
+      }),
       transaction: vi.fn(cb => cb({
         getRepository: (entity: any) => {
           if (entity === Account) return accountRepo;
@@ -101,7 +149,7 @@ describe('TransfersService', () => {
     expect(result.status).toBe('COMPLETED');
     expect(sender.balance).toBe('8000');
     expect(receiver.balance).toBe('7000');
-    expect(ledgerRepo.insert).toHaveBeenCalled();
+    expect(ledgerRepo.save).toHaveBeenCalled();
   });
 
   it('idempotency: same key returns identical transaction', async () => {
@@ -137,7 +185,7 @@ describe('TransfersService', () => {
   });
 
   it('daily tier limit breach throws ForbiddenException', async () => {
-    const sender = mockAccount('acc1', '1000000', 1);
+    const sender = mockAccount('acc1', '5000000', 1);
     const receiver = mockAccount('acc2', '5000', 1);
     
     txnRepo.findOne.mockResolvedValue(null);
@@ -146,7 +194,7 @@ describe('TransfersService', () => {
     await expect(service.transfer({
       senderAccountId: 'acc1',
       receiverAccountId: 'acc2',
-      amountCentimes: 60000,
+      amountCentimes: 2100000,
       type: 'P2P',
       idempotencyKey: 'key_limit',
     })).rejects.toThrow(ForbiddenException);

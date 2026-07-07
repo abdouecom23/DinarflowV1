@@ -1,7 +1,9 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Account } from './account.entity';
 
 @Entity('transactions')
+@Index(['senderAccount', 'ts'])
+@Index(['receiverAccount', 'ts'])
 export class Transaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;

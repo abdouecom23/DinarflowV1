@@ -10,6 +10,7 @@ import {
   FileCheck,
   ShieldCheck
 } from 'lucide-react';
+import { apiRequest } from '../lib/api';
 
 interface KYCFormProps {
   onSuccess?: () => void;
@@ -61,13 +62,26 @@ const KYCForm: React.FC<KYCFormProps> = ({ onSuccess }) => {
     if (!file) return;
 
     setStatus('uploading');
+    setError(null);
     
-    // Simulate API call
-    // TODO: Wire to backend KYC endpoint when implemented.
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setStatus('success');
-    if (onSuccess) setTimeout(onSuccess, 1500);
+    try {
+      await apiRequest('/api/v1/accounts/kyc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          docType,
+        }),
+      });
+      
+      setStatus('success');
+      if (onSuccess) setTimeout(onSuccess, 1500);
+    } catch (err: any) {
+      console.error('KYC Submission Error:', err);
+      setError(err.message || 'Failed to submit KYC documentation.');
+      setStatus('idle');
+    }
   };
 
   const resetForm = () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Wallet, 
@@ -11,11 +11,14 @@ import {
   Plus,
   TrendingUp,
   CreditCard,
-  ShieldCheck
+  ShieldCheck,
+  Lock
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api';
 import KYCForm from '../../components/KYCForm';
+import { PCIHostedFields } from '../../components/PCIHostedFields';
 
 interface AccountData {
   id: string;
@@ -31,8 +34,20 @@ interface AccountData {
 }
 
 const UserDashboard: React.FC = () => {
-  const [data, setData] = useState<AccountData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // Unified Server State Query with TanStack Query
+  const { data, isLoading: loading, refetch: fetchAccount } = useQuery<AccountData>({
+    queryKey: ['account_me'],
+    queryFn: () => apiRequest('/api/v1/accounts/me'),
+    refetchInterval: 5000, // Background real-time transaction and balance synchronization every 5 seconds
+  });
+
+  const [cards, setCards] = useState<Array<{ id: string; brand: string; last4: string }>>([
+    { id: '1', brand: 'VISA', last4: '4242' },
+  ]);
+  const [isAddingCard, setIsAddingCard] = useState(false);
+
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [isAddFundsModalOpen, setIsAddFundsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cards' | 'invest' | 'activity' | 'settings' | 'documents'>('dashboard');
@@ -41,21 +56,6 @@ const UserDashboard: React.FC = () => {
   const [recipient, setRecipient] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
-
-  const fetchAccount = async () => {
-    try {
-      const data = await apiRequest('/api/v1/accounts/me');
-      setData(data);
-    } catch (err) {
-      console.error('Failed to fetch:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAccount();
-  }, []);
 
   const handleSendMoney = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,16 +72,16 @@ const UserDashboard: React.FC = () => {
           'Idempotency-Key': uuidv4(),
         },
         body: JSON.stringify({
-          receiverAccountId: recipient, // In a real app, this might be looked up from an email/username
-          amountCentimes: Math.round(Number(transferAmount)), // Assuming transferAmount is DA
+          receiverAccountId: recipient,
+          amountCentimes: Math.round(Number(transferAmount)),
           reference: 'DinarFlow Transfer',
         }),
       });
 
       setMessage({ text: `Successfully sent ${transferAmount} DA!`, type: 'success' });
       
-      // Refresh balance
-      await fetchAccount();
+      // Invalidate queries to refresh balance instantaneously via cache
+      queryClient.invalidateQueries({ queryKey: ['account_me'] });
 
       setTimeout(() => {
         setIsSendModalOpen(false);
@@ -103,7 +103,11 @@ const UserDashboard: React.FC = () => {
     setIsProcessing(true);
     setTimeout(() => {
       if (data) {
-        setData({ ...data, balance: data.balance + Number(addAmount) });
+        // Optimistically update React Query's cache immediately
+        queryClient.setQueryData<AccountData>(['account_me'], {
+          ...data,
+          balance: data.balance + Number(addAmount),
+        });
         setMessage({ text: `Successfully added ${addAmount} DA to your account!`, type: 'success' });
         setTimeout(() => {
           setIsAddFundsModalOpen(false);
@@ -133,25 +137,64 @@ const UserDashboard: React.FC = () => {
         return (
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">My Cards</h2>
-              <button className="text-sm font-bold text-gray-900 flex items-center gap-1">
-                <Plus className="w-4 h-4" /> Add Card
-              </button>
-            </div>
-            <div className="aspect-[1.586/1] w-full max-w-sm bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 text-white relative overflow-hidden shadow-xl">
-              <div className="relative z-10 h-full flex flex-col justify-between">
-                <div className="flex justify-between items-start">
-                  <Wallet className="w-8 h-8 opacity-80" />
-                  <span className="font-mono text-lg tracking-widest">VISA</span>
-                </div>
-                <div>
-                  <p className="text-xs opacity-60 mb-1">Card Holder</p>
-                  <p className="font-medium tracking-wide uppercase">{data?.user?.full_name}</p>
-                  <p className="mt-4 font-mono text-xl tracking-widest">**** **** **** 4242</p>
-                </div>
+              <div>
+                <h2 className="text-2xl font-bold">My Cards</h2>
+                <p className="text-xs text-gray-500">Securely linked funding sources for DinarFlow.</p>
               </div>
-              <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -mr-24 -mt-24 blur-2xl" />
+              {!isAddingCard && (
+                <button 
+                  onClick={() => setIsAddingCard(true)}
+                  className="text-sm font-bold text-gray-900 flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-xl transition-colors"
+                >
+                  <Plus className="w-4 h-4" /> Add Card
+                </button>
+              )}
             </div>
+
+            <AnimatePresence mode="wait">
+              {isAddingCard ? (
+                <motion.div
+                  key="add-card"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <PCIHostedFields 
+                    onSuccess={(newCard) => {
+                      setCards([...cards, { id: uuidv4(), ...newCard }]);
+                      setIsAddingCard(false);
+                    }}
+                    onCancel={() => setIsAddingCard(false)}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="cards-list"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                >
+                  {cards.map((card) => (
+                    <div 
+                      key={card.id}
+                      className="aspect-[1.586/1] w-full bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-6 text-white relative overflow-hidden shadow-xl flex flex-col justify-between"
+                    >
+                      <div className="relative z-10 flex justify-between items-start">
+                        <Wallet className="w-8 h-8 opacity-80" />
+                        <span className="font-mono text-lg tracking-widest">{card.brand}</span>
+                      </div>
+                      <div className="relative z-10 mt-auto">
+                        <p className="text-[10px] uppercase tracking-wider opacity-60 mb-1">Card Holder</p>
+                        <p className="font-semibold tracking-wide uppercase text-sm truncate">{data?.user?.full_name}</p>
+                        <p className="mt-2 font-mono text-lg tracking-widest">**** **** **** {card.last4}</p>
+                      </div>
+                      <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -mr-24 -mt-24 blur-2xl pointer-events-none" />
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         );
       case 'invest':
