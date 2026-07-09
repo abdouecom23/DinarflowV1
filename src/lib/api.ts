@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid';
+
 /**
  * Simple API client for DinarFlow with secure credential handling (Cookies & Bearer tokens)
  */
@@ -14,6 +16,14 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
 
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  // Automatically inject an Idempotency-Key for write/mutation methods (POST, PUT, PATCH, DELETE)
+  const method = (options.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    if (!headers.has('idempotency-key') && !headers.has('Idempotency-Key')) {
+      headers.set('Idempotency-Key', uuidv4());
+    }
   }
 
   const response = await fetch(endpoint, {

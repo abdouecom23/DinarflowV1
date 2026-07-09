@@ -1,7 +1,43 @@
 import { LoggerService, Injectable } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { AuditLog } from '../entities/audit-log.entity';
 
 @Injectable()
 export class StructuredLogger implements LoggerService {
+  static dataSource: DataSource | null = null;
+  private static isSaving = false;
+
+  private saveToDb(level: string, message: any, context?: string) {
+    if (StructuredLogger.isSaving) {
+      return;
+    }
+    // Prevent logging TypeORM operations to avoid infinite cycles
+    if (context === 'TypeOrmModule' || (context && context.toLowerCase().includes('typeorm'))) {
+      return;
+    }
+
+    if (StructuredLogger.dataSource && StructuredLogger.dataSource.isInitialized) {
+      StructuredLogger.isSaving = true;
+      try {
+        const repo = StructuredLogger.dataSource.getRepository(AuditLog);
+        const logMessage = message instanceof Error ? message.message : typeof message === 'object' ? JSON.stringify(message) : message;
+        repo.save({
+          level,
+          context: context || 'Application',
+          message: String(logMessage || ''),
+        })
+        .then(() => {
+          StructuredLogger.isSaving = false;
+        })
+        .catch(() => {
+          StructuredLogger.isSaving = false;
+        });
+      } catch (err) {
+        StructuredLogger.isSaving = false;
+      }
+    }
+  }
+
   private formatLog(level: string, message: any, context?: string, trace?: string) {
     const timestamp = new Date().toISOString();
     const isProduction = process.env.NODE_ENV === 'production';
@@ -46,14 +82,17 @@ export class StructuredLogger implements LoggerService {
 
   log(message: any, context?: string) {
     console.log(this.formatLog('LOG', message, context));
+    this.saveToDb('LOG', message, context);
   }
 
   error(message: any, trace?: string, context?: string) {
     console.error(this.formatLog('ERROR', message, context, trace));
+    this.saveToDb('ERROR', message, context);
   }
 
   warn(message: any, context?: string) {
     console.warn(this.formatLog('WARN', message, context));
+    this.saveToDb('WARN', message, context);
   }
 
   debug?(message: any, context?: string) {

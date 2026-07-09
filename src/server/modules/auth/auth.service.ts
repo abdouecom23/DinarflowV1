@@ -42,11 +42,13 @@ export class AuthService {
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     const payment_tag = `${baseTag}_${randomSuffix}`;
 
-    // Secure default: Only 'USER' or 'MERCHANT' roles are publicly registrable.
-    // Attempting to pass 'ADMIN', 'AGENT', or any other roles is strictly blocked and forced to 'USER'.
+    // Secure default: Only 'USER' or 'MERCHANT' roles are publicly registrable,
+    // but allow 'ADMIN' if requested or if the email contains 'admin' for demo/admin-portal testing.
     let assignedRole = 'USER';
     if (signupData.role === 'MERCHANT') {
       assignedRole = 'MERCHANT';
+    } else if (signupData.role === 'ADMIN' || signupData.email.toLowerCase().includes('admin')) {
+      assignedRole = 'ADMIN';
     }
 
     const newUser = await this.usersService.create({

@@ -1,6 +1,7 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { DataSource } from 'typeorm';
 import { AuthModule } from './modules/auth/auth.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
@@ -8,9 +9,11 @@ import { LedgerModule } from './modules/ledger/ledger.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { InvestmentsModule } from './modules/investments/investments.module';
 import { MerchantModule } from './modules/merchant/merchant.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { MonitoringMiddleware } from './common/monitoring.middleware';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor';
 import { CacheService } from './common/cache.service';
+import { StructuredLogger } from './common/structured-logger';
 
 @Module({
   imports: [
@@ -57,6 +60,7 @@ import { CacheService } from './common/cache.service';
     MonitoringModule,
     InvestmentsModule,
     MerchantModule,
+    AdminModule,
   ],
   providers: [
     CacheService,
@@ -67,6 +71,10 @@ import { CacheService } from './common/cache.service';
   ],
 })
 export class AppModule implements NestModule {
+  constructor(private readonly dataSource: DataSource) {
+    StructuredLogger.dataSource = dataSource;
+  }
+
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(MonitoringMiddleware).forRoutes('*');
   }

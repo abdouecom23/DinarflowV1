@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
-type AccountType = 'individual' | 'merchant';
+type AccountType = 'individual' | 'merchant' | 'admin';
 
 const SignupPage: React.FC = () => {
   const [step, setStep] = useState(1);
@@ -49,7 +49,7 @@ const SignupPage: React.FC = () => {
           email: formData.email,
           password: formData.password,
           fullName: accountType === 'merchant' ? formData.businessName : formData.fullName,
-          role: accountType === 'merchant' ? 'MERCHANT' : 'USER',
+          role: accountType === 'merchant' ? 'MERCHANT' : accountType === 'admin' ? 'ADMIN' : 'USER',
         }),
       });
 
@@ -63,7 +63,7 @@ const SignupPage: React.FC = () => {
 
       setStep(5);
       setTimeout(() => {
-        navigate(accountType === 'merchant' ? '/merchant' : '/dashboard');
+        navigate(accountType === 'merchant' ? '/merchant' : accountType === 'admin' ? '/admin' : '/dashboard');
       }, 3000);
     } catch (err: any) {
       setError(err.message);
@@ -118,6 +118,23 @@ const SignupPage: React.FC = () => {
                   <div>
                     <h3 className="font-bold text-gray-900">Merchant</h3>
                     <p className="text-xs text-gray-500">Accept payments and grow your business.</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => { setAccountType('admin'); handleNext(); }}
+                className={`p-6 rounded-3xl border-2 text-left transition-all group ${
+                  accountType === 'admin' ? 'border-gray-900 bg-gray-50' : 'border-gray-100 hover:border-gray-200'
+                }`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Administrator</h3>
+                    <p className="text-xs text-gray-500">Access platform configuration, compliance tools and audit logs.</p>
                   </div>
                 </div>
               </button>

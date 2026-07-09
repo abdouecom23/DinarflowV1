@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Req, UseGuards, UnauthorizedException, NotFoundException, Inject } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseGuards, ForbiddenException, NotFoundException, Inject, BadRequestException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UserRole } from '../../../types';
@@ -17,13 +17,13 @@ export class UsersController {
   ) {
     // Validate that caller is an ADMIN
     if (req.user.role !== UserRole.ADMIN) {
-      throw new UnauthorizedException('Access denied. Administrator privileges required.');
+      throw new ForbiddenException('Access denied. Administrator privileges required.');
     }
 
     // Validate the target role exists in UserRole enum
     const desiredRole = body.role as UserRole;
     if (!Object.values(UserRole).includes(desiredRole)) {
-      throw new UnauthorizedException(`Invalid target role. Allowed roles: ${Object.keys(UserRole).join(', ')}`);
+      throw new BadRequestException(`Invalid target role. Allowed roles: ${Object.keys(UserRole).join(', ')}`);
     }
 
     // Fetch target user
